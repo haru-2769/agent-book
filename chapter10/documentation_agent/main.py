@@ -1,6 +1,8 @@
 import operator
 from typing import Annotated, Any, Optional
 
+import os
+from pathlib import Path
 from dotenv import load_dotenv
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
@@ -8,8 +10,9 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph
 from pydantic import BaseModel, Field
 
-# .envファイルから環境変数を読み込む
-load_dotenv()
+
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+os.environ["LANGCHAIN_API_KEY"] = os.environ["LANGSMITH_API_KEY"]
 
 
 # ペルソナを表すデータモデル
@@ -66,7 +69,10 @@ class InterviewState(BaseModel):
 # ペルソナを生成するクラス
 class PersonaGenerator:
     def __init__(self, llm: ChatOpenAI, k: int = 5):
-        self.llm = llm.with_structured_output(Personas)
+        self.llm = llm.with_structured_output(
+            Personas,
+            method="json_mode"
+        )
         self.k = k
 
     def run(self, user_request: str) -> Personas:
@@ -75,7 +81,11 @@ class PersonaGenerator:
             [
                 (
                     "system",
-                    "あなたはユーザーインタビュー用の多様なペルソナを作成する専門家です。",
+                    """あなたはユーザーインタビュー用の多様なペルソナを作成する専門家です。
+                    必ずJSON形式で回答してください。
+                    JSONにはpersonasという配列を含めてください。
+                    各要素にはnameとbackgroundを含めてください。
+                    JSON以外の文章は出力しないでください。""",
                 ),
                 (
                     "human",
@@ -185,7 +195,10 @@ class InterviewConductor:
 # 情報の十分性を評価するクラス
 class InformationEvaluator:
     def __init__(self, llm: ChatOpenAI):
-        self.llm = llm.with_structured_output(EvaluationResult)
+        self.llm = llm.with_structured_output(
+            EvaluationResult,
+            method="json_mode"
+        )
 
     # ユーザーリクエストとインタビュー結果を基に情報の十分性を評価
     def run(self, user_request: str, interviews: list[Interview]) -> EvaluationResult:
@@ -194,7 +207,13 @@ class InformationEvaluator:
             [
                 (
                     "system",
-                    "あなたは包括的な要件文書を作成するための情報の十分性を評価する専門家です。",
+                    """あなたは包括的な要件文書を作成するための情報の十分性を評価する専門家です。
+                    必ずJSON形式で回答してください。
+                    JSONには以下のフィールドを含めてください。
+                    - reason: 判断理由を表す文字列
+                    - is_sufficient: 情報が十分ならtrue、不十分ならfalse
+
+                    JSON以外の文章は出力しないでください。""",
                 ),
                 (
                     "human",
@@ -373,7 +392,12 @@ def main():
     args = parser.parse_args()
 
     # ChatOpenAIモデルを初期化
-    llm = ChatOpenAI(model="gpt-4o", temperature=0.0)
+    llm = ChatOpenAI(
+        model="deepseek-chat",
+        api_key=os.environ["DEEPSEEK_API_KEY"],
+        base_url="https://api.deepseek.com",
+        temperature=0.0,
+    )
     # 要件定義書生成AIエージェントを初期化
     agent = DocumentationAgent(llm=llm, k=args.k)
     # エージェントを実行して最終的な出力を取得
